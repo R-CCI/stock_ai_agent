@@ -157,32 +157,51 @@ def compute_risk_metrics(
 def run_gmm_montecarlo(
     price_df: pd.DataFrame,
     days: int = 60,
-    n_simulations: int = 50,
-    n_components: int = 2,
+    n_simulations: int = 1000,
 ) -> dict:
     """Run Gaussian Mixture Model Monte Carlo simulations."""
     close = price_df["Close"]
     if isinstance(close, pd.DataFrame):
         close = close.iloc[:, 0]
-    returns = np.log(1 + close.pct_change()).dropna()
-
+    
+    # Use log returns explicitly for the simulation
+    returns = np.log(close / close.shift(1)).dropna()
     X = returns.values.reshape(-1, 1)
-    gmm = GaussianMixture(n_components=n_components, random_state=42)
-    gmm.fit(X)
+
+    # ── BIC-based Component Selection ──
+    best_gmm = None
+    best_bic = np.inf
+    # Try 1 to 4 components and pick the best fit based on BIC
+    for n in range(1, 5):
+        try:
+            gmm = GaussianMixture(n_components=n, random_state=42, max_iter=100)
+            gmm.fit(X)
+            bic = gmm.bic(X)
+            if bic < best_bic:
+                best_bic = bic
+                best_gmm = gmm
+        except Exception:
+            continue
+    
+    gmm = best_gmm if best_gmm else GaussianMixture(n_components=1).fit(X)
 
     last_price = float(close.iloc[-1])
     last_date = close.index[-1]
-    dates_list = [last_date + timedelta(days=i) for i in range(days)]
+    dates_list = [last_date + timedelta(days=i + 1) for i in range(days)]
 
-    sim_df = pd.DataFrame()
-    all_paths = []
-
-    for i in range(n_simulations):
-        sim_returns, _ = gmm.sample(days)
-        sim_returns = sim_returns.flatten()
-        sim_prices = last_price * (1 + sim_returns).cumprod()
-        sim_df[f"S{i + 1}"] = sim_prices
-        all_paths.append(sim_prices)
+    # ── Vectorized Path Generation ──
+    # Sample all returns at once: (days * n_simulations, 1)
+    sim_returns, _ = gmm.sample(days * n_simulations)
+    sim_returns = sim_returns.reshape(days, n_simulations)
+    
+    # Correct formula for log returns: Price_t = Price_0 * exp(cumulative sum of returns)
+    price_paths = last_price * np.exp(np.cumsum(sim_returns, axis=0))
+    
+    sim_df = pd.DataFrame(
+        price_paths, 
+        index=dates_list, 
+        columns=[f"S{i + 1}" for i in range(n_simulations)]
+    )
 
     sim_df = _project_percentiles(sim_df)
 
@@ -200,6 +219,7 @@ def run_gmm_montecarlo(
         "percentile_summary": percentile_summary,
         "n_simulations": n_simulations,
         "days": days,
+        "n_components": gmm.n_components,
     }
 
 
