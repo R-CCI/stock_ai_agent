@@ -83,6 +83,11 @@ def render_risk_tab(
 
     # ── Monte Carlo ──
     st.markdown("#### 🎲 Simulación Monte Carlo")
+    
+    if mc_data:
+        n_sims = mc_data.get("n_simulations", 0)
+        n_comp = mc_data.get("n_components", "N/A")
+        st.caption(f"Basada en {n_sims} trayectorias proyectadas usando un modelo GMM de {n_comp} componentes.")
 
     if mc_chart:
         st.plotly_chart(mc_chart, use_container_width=True)
@@ -91,11 +96,23 @@ def render_risk_tab(
         ps = mc_data.get("percentile_summary", {})
         st.markdown("**Niveles de Precio Proyectados (Fin del Periodo)**")
         cols = st.columns(7)
-        labels = [("P1", "🔴"), ("P5", "🔴"), ("P25", "🟡"), ("P50", "🟢"), ("P75", "🟡"), ("P95", "🔵"), ("P99", "🔵")]
-        for col, (key, icon) in zip(cols, labels):
+        labels = [
+            ("P1", "🔴", "Riesgo extremo bajista (1%)"),
+            ("P5", "🔴", "Riesgo bajista significativo (5%)"),
+            ("P25", "🟡", "Escenario pesimista moderado (25%)"),
+            ("P50", "🟢", "Mediana / Escenario central (50%)"),
+            ("P75", "🟡", "Escenario optimista moderado (75%)"),
+            ("P95", "🔵", "Escenario alcista significativo (95%)"),
+            ("P99", "🔵", "Escenario de crecimiento extremo (99%)"),
+        ]
+        for col, (key, icon, tooltip) in zip(cols, labels):
             with col:
                 val = ps.get(key, 0)
-                st.metric(f"{icon} {key}", f"${val:,.2f}" if val else "N/A")
+                st.metric(
+                    label=f"{icon} {key}", 
+                    value=f"${val:,.2f}" if val else "N/A",
+                    help=tooltip
+                )
 
     if mc_analysis:
         with st.expander("🤖 Análisis Monte Carlo IA", expanded=True):
