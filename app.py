@@ -8,7 +8,7 @@ import streamlit as st
 import json
 import traceback
 from openai import OpenAI
-
+import pandas as pd
 # ── Local modules ────────────────────────────────────────────────────────
 from src.config import (
     get_api_key, get_risk_free_rate, DEFAULT_MODEL,
@@ -643,3 +643,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
