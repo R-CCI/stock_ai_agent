@@ -13,8 +13,6 @@ from sklearn.mixture import GaussianMixture
 import statsmodels.api as sm
 from statsmodels import regression
 
-from src.config import get_risk_free_rate
-
 
 # ═══════════════════════════════════════════════════════════════════════════
 #  Helper Functions
@@ -291,4 +289,5 @@ def compute_options_analysis(options_data: dict, rfr: float | None = None) -> di
         "calls": calls,
         "puts": puts,
     }
+
 
