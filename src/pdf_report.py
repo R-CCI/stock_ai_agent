@@ -105,8 +105,8 @@ class PDFReport(FPDF):
         vals = [
             f"${metrics.get('price', 'N/A')}",
             f"{metrics.get('change', '0')}%",
-            metrics.get('market_cap', 'N/A'),
-            metrics.get('sector', 'N/A')[:15]
+            str(metrics.get('market_cap', 'N/A')),
+            str(metrics.get('sector', 'N/A'))[:15]
         ]
         for val in vals:
             self.cell(col_w, 8, val, align="C")
@@ -184,11 +184,11 @@ def generate_report(
     pdf.set_y(10)
     pdf.set_font("Helvetica", "B", 24)
     pdf.set_text_color(255, 255, 255)
-    pdf.cell(0, 15, company.upper(), align="C", ln=True)
+    pdf.cell(0, 15, str(company).upper(), align="C", ln=True)
     
     pdf.set_font("Helvetica", "B", 12)
     pdf.set_text_color(*PDF_TEAL)
-    pdf.cell(0, 10, f"RESEARCH REPORT | {ticker}", align="C", ln=True)
+    pdf.cell(0, 10, f"RESEARCH REPORT | {str(ticker).upper()}", align="C", ln=True)
     
     pdf.ln(15)
     
