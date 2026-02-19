@@ -45,6 +45,37 @@ def _get_yf_ticker(ticker: str):
     return yf.Ticker(ticker)
 
 
+def parse_financial_val(val: str | float | None) -> float:
+    """Parse financial strings like '1.5B', '300M' into floats."""
+    if val is None:
+        return 0.0
+    if isinstance(val, (int, float)):
+        return float(val)
+    
+    val = str(val).strip().upper().replace(",", "")
+    if not val or val == "N/A" or val == "-":
+        return 0.0
+    
+    multiplier = 1.0
+    if val.endswith("B"):
+        multiplier = 1e9
+        val = val[:-1]
+    elif val.endswith("M"):
+        multiplier = 1e6
+        val = val[:-1]
+    elif val.endswith("K"):
+        multiplier = 1e3
+        val = val[:-1]
+    elif val.endswith("%"):
+        multiplier = 0.01
+        val = val[:-1]
+        
+    try:
+        return float(val) * multiplier
+    except ValueError:
+        return 0.0
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 #  Instrument Detection
 # ═══════════════════════════════════════════════════════════════════════════
@@ -54,12 +85,30 @@ def detect_instrument_type(ticker: str) -> str:
     try:
         info = _get_yf_info(ticker)
         quote_type = info.get("quoteType", "").upper()
+        
+        # Fallback to fast_info if main info is empty
+        if not info:
+            try:
+                fast = _get_yf_ticker(ticker).fast_info
+                quote_type = getattr(fast, "quote_type", "").upper()
+            except Exception:
+                pass
+
+        # Heuristic fallbacks if still unknown
+        if not quote_type:
+            # Common ETF tickers or suffixes
+            if any(ticker.upper().endswith(x) for x in [".L", ".PA", ".DE"]) and len(ticker) > 4:
+                # Often international stocks, but let's check common ETFs
+                pass
+            if ticker.upper() in ["SPY", "VOO", "IVV", "QQQ", "VTI", "IWM"]:
+                return INSTRUMENT_ETF
+
         long_name = (info.get("longName") or info.get("shortName") or "").upper()
         category = (info.get("category") or "").upper()
         sector = (info.get("sector") or "").upper()
 
-        if quote_type == "ETF":
-            if "REIT" in category or "REAL ESTATE" in category:
+        if quote_type == "ETF" or "ETF" in long_name:
+            if "REIT" in category or "REAL ESTATE" in category or "REIT" in long_name:
                 return INSTRUMENT_REIT
             return INSTRUMENT_ETF
 
@@ -78,23 +127,45 @@ def detect_instrument_type(ticker: str) -> str:
 # ═══════════════════════════════════════════════════════════════════════════
 
 def get_overview(ticker: str) -> dict:
-    """Get overview data — adapts to instrument type."""
+    """Get overview data — adapts to instrument type with robust fallbacks."""
     info = _get_yf_info(ticker)
     instrument = detect_instrument_type(ticker)
+    yt = _get_yf_ticker(ticker)
+    
+    # Attempt robust name and price discovery
+    name = info.get("longName") or info.get("shortName")
+    if not name:
+        try:
+            name = yt.fast_info.get("longName") or yt.fast_info.get("shortName")
+        except Exception:
+            name = ticker
+
+    # Use the existing robust price fetcher
+    price_data = get_current_price(ticker)
+    current_price = price_data.get("Price", 0)
 
     base = {
         "ticker": ticker,
         "instrument_type": instrument,
-        "name": info.get("longName") or info.get("shortName", ticker),
-        "currency": info.get("currency", "USD"),
+        "name": name,
+        "currency": info.get("currency") or "USD",
         "exchange": info.get("exchange", ""),
-        "price": info.get("currentPrice") or info.get("regularMarketPrice") or info.get("previousClose", 0),
+        "price": current_price,
     }
 
     if instrument == INSTRUMENT_ETF:
+        # Fallback for description
+        description = info.get("longBusinessSummary")
+        if not description:
+            try:
+                # Some ETFs have description in fast_info or needs scraping, but info is best
+                pass
+            except Exception:
+                pass
+
         base.update({
-            "description": info.get("longBusinessSummary", ""),
-            "category": info.get("category", ""),
+            "description": description or "No hay descripción disponible para este fondo.",
+            "category": info.get("category", "N/A"),
             "total_assets": info.get("totalAssets", 0),
             "expense_ratio": info.get("annualReportExpenseRatio", None),
             "yield": info.get("yield", None),
@@ -105,20 +176,25 @@ def get_overview(ticker: str) -> dict:
         })
     else:
         # Stock or REIT
+        description = ""
+        fundament = {}
         try:
+            from finvizfinance.quote import finvizfinance
             stock = finvizfinance(ticker)
             description = stock.ticker_description()
             fundament = stock.ticker_fundament()
         except Exception:
+            pass
+
+        if not description:
             description = info.get("longBusinessSummary", "")
-            fundament = {}
 
         base.update({
-            "description": description,
-            "sector": fundament.get("Sector") or info.get("sector", ""),
-            "industry": fundament.get("Industry") or info.get("industry", ""),
-            "market_cap": fundament.get("Market Cap") or info.get("marketCap", ""),
-            "employees": fundament.get("Employees", ""),
+            "description": description or "No hay descripción disponible para esta empresa.",
+            "sector": fundament.get("Sector") or info.get("sector", "N/A"),
+            "industry": fundament.get("Industry") or info.get("industry", "N/A"),
+            "market_cap": fundament.get("Market Cap") or info.get("marketCap", "N/A"),
+            "employees": fundament.get("Employees", "N/A"),
         })
 
         if instrument == INSTRUMENT_REIT:
