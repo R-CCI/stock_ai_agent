@@ -194,9 +194,11 @@ def generate_report(
     
     # At a Glance Snapshot
     pdf.section_title("Resumen de Mercado", size=12, underline=False)
+    
+    price_data = results.get("current_price_data") or {}
     metrics = {
         "price": overview.get("price", 0),
-        "change": results.get("current_price_data", {}).get("Change", 0),
+        "change": price_data.get("Change", 0),
         "market_cap": overview.get("market_cap", "N/A"),
         "sector": overview.get("sector", overview.get("category", "N/A"))
     }
