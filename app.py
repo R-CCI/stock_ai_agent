@@ -149,6 +149,8 @@ def run_full_analysis(ticker: str, config: dict):
         # ── Step 2: Price Data ──
         progress.progress(10, text="📈 Obteniendo historial de precios...")
         price_df = get_price_history(ticker, period=f"{DEFAULT_LOOKBACK_YEARS}y")
+        if overview["price"] == 0:
+            overview["price"] = price_df["Close"].iloc[-1]
         bm_df = get_price_history(benchmark, period=f"{DEFAULT_LOOKBACK_YEARS}y")
 
         # ── Step 3: Fundamentals & Valuation ──
@@ -643,4 +645,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
