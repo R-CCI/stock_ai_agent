@@ -2,6 +2,7 @@
 """Pestaña de Análisis DCF — Valoración intrínseca interactiva."""
 
 import streamlit as st
+import pandas as pd
 import plotly.graph_objects as go
 from src.analysis import compute_dcf
 from src.technical_analysis import create_dcf_charts
