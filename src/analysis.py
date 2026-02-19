@@ -291,3 +291,91 @@ def compute_options_analysis(options_data: dict, rfr: float | None = None) -> di
         "calls": calls,
         "puts": puts,
     }
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Valuation: DCF Analysis
+# ═══════════════════════════════════════════════════════════════════════════
+
+def compute_dcf(
+    fcf_base: float,
+    growth_rate: float,
+    wacc: float,
+    terminal_growth: float,
+    ebitda_base: float | None = None,
+    exit_multiple: float | None = None,
+    net_debt: float = 0,
+    shares_outstanding: float = 1,
+    years: int = 5
+) -> dict:
+    """
+    Compute DCF valuation using two methods: Gordon Growth and Exit Multiple.
+    
+    Args:
+        fcf_base: Current Free Cash Flow.
+        growth_rate: Expected FCF growth rate (0.05 for 5%).
+        wacc: Discount rate (0.15 for 15%).
+        terminal_growth: Perpetual growth rate (0.02 for 2%).
+        ebitda_base: Current EBITDA (optional for Exit Multiple).
+        exit_multiple: EV/EBITDA multiple (optional).
+        net_debt: Total Debt - Cash.
+        shares_outstanding: Total diluted shares.
+        years: Projection period (default 5 years).
+    """
+    projections = []
+    current_fcf = fcf_base
+    
+    # 1. Project Cash Flows
+    for i in range(1, years + 1):
+        current_fcf *= (1 + growth_rate)
+        discount_factor = 1 / ((1 + wacc) ** i)
+        pv_fcf = current_fcf * discount_factor
+        projections.append({
+            "year": i,
+            "fcf": round(current_fcf, 2),
+            "pv_fcf": round(pv_fcf, 2)
+        })
+
+    sum_pv_cf = sum(p["pv_fcf"] for p in projections)
+    final_fcf = projections[-1]["fcf"]
+    
+    # 2. Terminal Value (Method 1: Gordon Growth)
+    tv_gordon = (final_fcf * (1 + terminal_growth)) / (wacc - terminal_growth)
+    pv_tv_gordon = tv_gordon / ((1 + wacc) ** years)
+    
+    ev_gordon = sum_pv_cf + pv_tv_gordon
+    equity_val_gordon = ev_gordon - net_debt
+    price_gordon = equity_val_gordon / shares_outstanding if shares_outstanding > 0 else 0
+    
+    # 3. Terminal Value (Method 2: Exit Multiple)
+    price_exit = 0
+    ev_exit = 0
+    pv_tv_exit = 0
+    if ebitda_base is not None and exit_multiple is not None:
+        projected_ebitda = ebitda_base * ((1 + growth_rate) ** years)
+        tv_exit = projected_ebitda * exit_multiple
+        pv_tv_exit = tv_exit / ((1 + wacc) ** years)
+        ev_exit = sum_pv_cf + pv_tv_exit
+        equity_val_exit = ev_exit - net_debt
+        price_exit = equity_val_exit / shares_outstanding if shares_outstanding > 0 else 0
+
+    return {
+        "projections": projections,
+        "sum_pv_cf": round(sum_pv_cf, 2),
+        "gordon": {
+            "terminal_value": round(tv_gordon, 2),
+            "pv_terminal_value": round(pv_tv_gordon, 2),
+            "enterprise_value": round(ev_gordon, 2),
+            "equity_value": round(equity_val_gordon, 2),
+            "implied_price": round(price_gordon, 2),
+            "pct_from_tv": round(pv_tv_gordon * 100 / ev_gordon, 1) if ev_gordon > 0 else 0
+        },
+        "exit": {
+            "terminal_value": round(pv_tv_exit * ((1 + wacc) ** years), 2) if pv_tv_exit > 0 else 0,
+            "pv_terminal_value": round(pv_tv_exit, 2),
+            "enterprise_value": round(ev_exit, 2),
+            "equity_value": round(ev_exit - net_debt, 2),
+            "implied_price": round(price_exit, 2),
+            "pct_from_tv": round(pv_tv_exit * 100 / ev_exit, 1) if ev_exit > 0 else 0
+        }
+    }
