@@ -749,3 +749,60 @@ def create_drawdown_chart(dd_series: pd.DataFrame, ticker: str) -> go.Figure:
     )
 
     return fig
+
+
+def create_dcf_charts(dcf_results: dict, method: str = "gordon") -> list[go.Figure]:
+    """Create visualizations for DCF projections and value breakdown."""
+    method_data = dcf_results.get(method, {})
+    projections = dcf_results.get("projections", [])
+    
+    if not method_data or not projections:
+        return []
+
+    # 1. Projections Chart (Bar)
+    years = [f"Año {p['year']}" for p in projections]
+    fcf_vals = [p["fcf"] for p in projections]
+    pv_fcf_vals = [p["pv_fcf"] for p in projections]
+
+    fig_proj = go.Figure()
+    fig_proj.add_trace(go.Bar(
+        x=years, y=fcf_vals, name="Flujo de Caja Libre (FCF)",
+        marker_color="#74B9FF", opacity=0.8
+    ))
+    fig_proj.add_trace(go.Bar(
+        x=years, y=pv_fcf_vals, name="PV del FCF",
+        marker_color="#00D4AA", opacity=0.9
+    ))
+
+    fig_proj.update_layout(
+        template="plotly_dark",
+        title="Proyección de Flujos de Caja Futuros",
+        xaxis_title="Período",
+        yaxis_title="Monto ($)",
+        barmode="group",
+        paper_bgcolor="#0E1117",
+        plot_bgcolor="#0E1117",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02),
+        height=400,
+    )
+
+    # 2. Value Concentration (Pie)
+    pv_sum_cf = dcf_results.get("sum_pv_cf", 0)
+    pv_tv = method_data.get("pv_terminal_value", 0)
+
+    fig_pie = go.Figure(data=[go.Pie(
+        labels=["PV de Flujos 5 Años", "PV del Valor Terminal"],
+        values=[pv_sum_cf, pv_tv],
+        hole=.4,
+        marker_colors=["#6C5CE7", "#FFD93D"]
+    )])
+
+    fig_pie.update_layout(
+        template="plotly_dark",
+        title="Distribución del Valor Intrínseco",
+        paper_bgcolor="#0E1117",
+        plot_bgcolor="#0E1117",
+        height=400,
+    )
+
+    return [fig_proj, fig_pie]
