@@ -27,8 +27,8 @@ def get_risk_free_rate() -> float:
 
 
 # ── Model defaults ──────────────────────────────────────────────────────────
-DEFAULT_MODEL = "gpt-4o"
-ANALYSIS_MODEL = "gpt-4o"  # for chart / vision analysis
+DEFAULT_MODEL = "gpt-5"
+ANALYSIS_MODEL = "gpt-5"  # for chart / vision analysis
 TEMPERATURE = 0.3
 
 # ── Instrument type constants ───────────────────────────────────────────────
