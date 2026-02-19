@@ -32,7 +32,8 @@ def render_overview_tab(overview: dict, news_analysis: str, market_analysis: str
             )
 
     with col_info:
-        st.markdown(f"### {overview.get('name', overview.get('ticker', ''))}")
+        name = overview.get("name") or overview.get("ticker", "")
+        st.markdown(f"### {name}")
         trans_inst = {"Stock": "Acción", "ETF": "ETF", "REIT": "REIT"}.get(instrument, instrument)
         badge_color = {"Stock": "#00D4AA", "ETF": "#6C5CE7", "REIT": "#FFA502"}.get(instrument, "#888")
         st.markdown(
@@ -146,5 +147,3 @@ def render_overview_tab(overview: dict, news_analysis: str, market_analysis: str
     if macro_analysis:
         with st.expander("🏛️ Informe Macroeconómico", expanded=False):
             st.markdown(macro_analysis)
-
-
