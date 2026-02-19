@@ -134,11 +134,16 @@ def get_overview(ticker: str) -> dict:
     
     # Attempt robust name and price discovery
     name = info.get("longName") or info.get("shortName")
-    if not name:
+    if not name or name == "None":
         try:
-            name = yt.fast_info.get("longName") or yt.fast_info.get("shortName")
+            fast = yt.fast_info
+            name = getattr(fast, "longName", None) or getattr(fast, "shortName", None)
         except Exception:
-            name = ticker
+            pass
+    
+    # Final fallback if still None or empty
+    if not name or name == "None":
+        name = ticker
 
     # Use the existing robust price fetcher
     price_data = get_current_price(ticker)
