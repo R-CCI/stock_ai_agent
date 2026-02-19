@@ -65,7 +65,7 @@ def render_sidebar() -> dict:
         with col2:
             n_sims = st.number_input(
                 "Rutas MC",
-                min_value=10, max_value=200,
+                min_value=10, max_value=2000,
                 value=DEFAULT_N_SIMULATIONS,
                 step=10,
                 key="n_sims",
@@ -98,3 +98,4 @@ def render_sidebar() -> dict:
         "n_sims": n_sims,
         "run_analysis": run_analysis,
     }
+
