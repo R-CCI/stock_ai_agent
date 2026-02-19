@@ -43,6 +43,13 @@ BULLISH_COLOR = "#00D4AA"
 BEARISH_COLOR = "#FF4757"
 NEUTRAL_COLOR = "#FFA502"
 
+# Institutional PDF Colors
+PDF_NAVY = (2, 48, 71)
+PDF_TEAL = (0, 212, 170)
+PDF_SLATE = (142, 154, 175)
+PDF_BG_GREY = (248, 249, 250)
+PDF_TEXT_DARK = (33, 37, 41)
+
 # ── Simulation defaults ────────────────────────────────────────────────────
 DEFAULT_SIMULATION_DAYS = 60
 DEFAULT_N_SIMULATIONS = 1000
