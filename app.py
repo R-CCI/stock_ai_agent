@@ -45,6 +45,7 @@ from src.components.financials_tab import render_financials_tab
 from src.components.technicals_tab import render_technicals_tab
 from src.components.risk_tab import render_risk_tab
 from src.components.options_tab import render_options_tab
+from src.components.dcf_tab import render_dcf_tab
 from src.components.report_tab import render_report_tab
 
 
@@ -159,6 +160,7 @@ def run_full_analysis(ticker: str, config: dict):
         # ── Step 3: Fundamentals & Valuation ──
         progress.progress(15, text="🔬 Obteniendo fundamentales...")
         fundamentals = get_fundamentals(ticker)
+        df_results["fundamentals_raw"] = fundamentals
         valuation_data = get_valuation_data(ticker)
 
         # ── Step 4: Financial Statements (stocks/REITs only) ──
@@ -200,6 +202,27 @@ def run_full_analysis(ticker: str, config: dict):
         progress.progress(50, text="🎲 Ejecutando simulaciones Monte Carlo...")
         mc_data = run_gmm_montecarlo(price_df, days=sim_days, n_simulations=n_sims)
         charts["montecarlo"] = create_montecarlo_chart(mc_data, ticker)
+
+        # ── Step 11: DCF (Baseline) ──
+        progress.progress(52, text="💎 Calculando valoración intrínseca (DCF)...")
+        from src.data_fetcher import parse_financial_val
+        from src.analysis import compute_dcf
+        
+        fcf_raw = fundamentals.get("Free Cash Flow", 0)
+        fcf_base = parse_financial_val(fcf_raw)
+        ebitda_base = parse_financial_val(fundamentals.get("EBITDA", 0))
+        shares = parse_financial_val(fundamentals.get("Shs Outstand", 1))
+        
+        dcf_baseline = compute_dcf(
+            fcf_base=float(fcf_base) if fcf_base != 0 else 1e6, # Fallback
+            growth_rate=0.10, # Baseline 10%
+            wacc=0.15,        # Buffett baseline
+            terminal_growth=0.02,
+            ebitda_base=ebitda_base,
+            exit_multiple=12.0,
+            shares_outstanding=shares
+        )
+        results["dcf"] = dcf_baseline
 
         # ═══════════════════════════════════════════════════════════════
         #  LLM Analysis Calls
@@ -588,8 +611,8 @@ def main():
         pdf_path = st.session_state.get("pdf_path")
 
         # Tabs
-        tab_names = ["📋 Resumen", "💰 Financiero", "📈 Técnico", "⚠️ Riesgo y MC", "🎯 Opciones", "📄 Reporte"]
-        tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(tab_names)
+        tab_names = ["📋 Resumen", "💰 Financiero", "📈 Técnico", "⚠️ Riesgo y MC", "🎯 Opciones", "💰 Análisis DCF", "📄 Reporte Final"]
+        tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs(tab_names)
 
         with tab1:
             etf_holdings = {
@@ -640,6 +663,13 @@ def main():
             )
 
         with tab6:
+            render_dcf_tab(
+                ticker=config["ticker"],
+                overview=overview,
+                fundamentals=df_results.get("fundamentals_raw", {}),
+            )
+
+        with tab7:
             render_report_tab(
                 conclusion=conclusion,
                 pdf_path=pdf_path,
