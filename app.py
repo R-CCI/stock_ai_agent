@@ -20,7 +20,7 @@ from src.data_fetcher import (
     detect_instrument_type, get_overview, get_price_history,
     get_fundamentals, get_financial_statements, get_valuation_data,
     get_ticker_news, get_market_news, get_macro_blogs,
-    get_options_data, get_company_logo_url,
+    get_options_data, get_company_logo_url, get_current_price,
 )
 from src.analysis import (
     compute_risk_metrics, run_gmm_montecarlo, compute_options_analysis,
@@ -141,6 +141,7 @@ def run_full_analysis(ticker: str, config: dict):
         progress.progress(5, text="🔍 Detectando tipo de instrumento...")
         instrument_type = detect_instrument_type(ticker)
         overview = get_overview(ticker)
+        current_price_data = get_current_price(ticker)
         overview["instrument_type"] = instrument_type
         overview["ticker"] = ticker
 
@@ -267,11 +268,11 @@ def run_full_analysis(ticker: str, config: dict):
         vd = valuation_data or {}
         industry_avgs = vd.get("industry_averages", {})
 
-        current_price_data = overview.get("price", f.get("Price", "N/A"))
+        price_val = overview.get("price", f.get("Price", "N/A"))
         results["valuation"] = call_llm(
             VALUATION_PROMPT.format(
                 ticker=ticker, instrument_type=instrument_type,
-                price=current_price_data,
+                price=price_val,
                 target_price=f.get("Target Price", "N/A"),
                 industry=f.get("Industry", "N/A"),
                 pe_ratio=f.get("P/E", "N/A"),
