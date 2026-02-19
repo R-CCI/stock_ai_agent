@@ -104,7 +104,7 @@ class PDFReport(FPDF):
         self.set_text_color(*PDF_NAVY)
         vals = [
             f"${metrics.get('price', 'N/A')}",
-            f"{metrics.get('change', '0')}%",
+            f"{round(metrics.get('change', '0'), 2)}%",
             str(metrics.get('market_cap', 'N/A')),
             str(metrics.get('sector', 'N/A'))[:15]
         ]
@@ -311,3 +311,4 @@ def generate_report(
     filename = f"{ticker}_Equity_Research_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf"
     pdf.output(filename)
     return filename
+
