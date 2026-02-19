@@ -106,9 +106,15 @@ def call_llm(prompt: str, model: str = DEFAULT_MODEL, temperature: float = 0.4) 
         return "⚠️ OpenAI API key not configured. Set OPENAI_API_KEY env var or .streamlit/secrets.toml."
     try:
         client = OpenAI(api_key=api_key)
+        
+        # Models like o1, o3, or "gpt-5" (o1-based) may not support temperature other than 1.0
+        temp = temperature
+        if any(m in model.lower() for m in ["o1", "o3", "gpt-5"]):
+            temp = 1.0
+
         response = client.chat.completions.create(
             model=model,
-            temperature=temperature,
+            temperature=temp,
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": prompt},
