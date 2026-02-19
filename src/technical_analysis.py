@@ -160,15 +160,23 @@ def detect_head_and_shoulders(df: pd.DataFrame, window: int = 10) -> list:
             if head > left and head > right:
                 shoulder_diff = abs(left - right) / max(left, right)
                 if shoulder_diff < 0.05:  # shoulders within 5% of each other
-                    neckline = min(close.iloc[local_min_idx[(local_min_idx > local_max_idx[i]) & (local_min_idx < local_max_idx[i + 2])]].values) if len(local_min_idx[(local_min_idx > local_max_idx[i]) & (local_min_idx < local_max_idx[i + 2])]) > 0 else None
+                    neckline_idx = local_min_idx[(local_min_idx > local_max_idx[i]) & (local_min_idx < local_max_idx[i + 2])]
+                    neckline_vals = close.iloc[neckline_idx].values if len(neckline_idx) > 0 else []
+                    neckline = min(neckline_vals) if len(neckline_vals) > 0 else None
+                    
                     patterns.append({
                         "type": "Head & Shoulders (Bearish)",
                         "head_price": round(float(head), 2),
+                        "head_date": str(df.index[local_max_idx[i + 1]].date()),
                         "left_shoulder": round(float(left), 2),
                         "right_shoulder": round(float(right), 2),
                         "neckline": round(float(neckline), 2) if neckline is not None else None,
-                        "target": round(float(head - (head - neckline)), 2) if neckline is not None else None,
-                        "head_date": str(df.index[local_max_idx[i + 1]].date()),
+                        "coords": [
+                            (str(df.index[local_max_idx[i]].date()), float(left)),
+                            (str(df.index[local_max_idx[i + 1]].date()), float(head)),
+                            (str(df.index[local_max_idx[i + 2]].date()), float(right))
+                        ],
+                        "neckline_coords": [(str(df.index[idx].date()), float(close.iloc[idx])) for idx in neckline_idx] if len(neckline_idx) > 0 else [],
                         "reliability": "High" if shoulder_diff < 0.03 else "Moderate",
                     })
 
@@ -185,8 +193,14 @@ def detect_head_and_shoulders(df: pd.DataFrame, window: int = 10) -> list:
                     patterns.append({
                         "type": "Inverse Head & Shoulders (Bullish)",
                         "head_price": round(float(head), 2),
+                        "head_date": str(df.index[local_min_idx[i + 1]].date()),
                         "left_shoulder": round(float(left), 2),
                         "right_shoulder": round(float(right), 2),
+                        "coords": [
+                            (str(df.index[local_min_idx[i]].date()), float(left)),
+                            (str(df.index[local_min_idx[i + 1]].date()), float(head)),
+                            (str(df.index[local_min_idx[i + 2]].date()), float(right))
+                        ],
                         "reliability": "High" if shoulder_diff < 0.03 else "Moderate",
                     })
 
@@ -215,6 +229,10 @@ def detect_double_top_bottom(df: pd.DataFrame, window: int = 15, tolerance: floa
                     "price_level": round((float(p1) + float(p2)) / 2, 2),
                     "first_peak": str(df.index[local_max_idx[i]].date()),
                     "second_peak": str(df.index[local_max_idx[i + 1]].date()),
+                    "coords": [
+                        (str(df.index[local_max_idx[i]].date()), float(p1)),
+                        (str(df.index[local_max_idx[i + 1]].date()), float(p2))
+                    ],
                     "similarity": round((1 - diff) * 100, 1),
                 })
 
@@ -230,6 +248,10 @@ def detect_double_top_bottom(df: pd.DataFrame, window: int = 15, tolerance: floa
                     "price_level": round((float(p1) + float(p2)) / 2, 2),
                     "first_trough": str(df.index[local_min_idx[i]].date()),
                     "second_trough": str(df.index[local_min_idx[i + 1]].date()),
+                    "coords": [
+                        (str(df.index[local_min_idx[i]].date()), float(p1)),
+                        (str(df.index[local_min_idx[i + 1]].date()), float(p2))
+                    ],
                     "similarity": round((1 - diff) * 100, 1),
                 })
 
@@ -515,18 +537,55 @@ def create_technical_chart(ta_data: dict, lookback: int = 200) -> go.Figure:
         fig.add_trace(go.Scatter(x=df.index, y=vol_sma, name="Vol SMA20",
                                  line=dict(color="#FFD93D", width=1)), row=4, col=1)
 
-    # Pattern annotations
+    # Pattern Drawings & Annotations
     for p in patterns:
-        if "date" in p:
-            try:
+        try:
+            # 1. Draw Silhouette (if coords exist)
+            if "coords" in p and p["coords"]:
+                # Head & Shoulders or Double Top/Bottom silhouettes
+                dates = [c[0] for c in p["coords"]]
+                prices = [c[1] for c in p["coords"]]
+                
+                # Filter coords to only show if within current view
+                if any(pd.to_datetime(d) in df.index for d in dates):
+                    fig.add_trace(go.Scatter(
+                        x=dates, y=prices,
+                        mode="lines+markers",
+                        name=p["type"],
+                        line=dict(color="#FFD93D", width=2, dash="dot"),
+                        marker=dict(size=6, symbol="diamond"),
+                        showlegend=False,
+                    ), row=1, col=1)
+
+                # 1b. Draw Neckline (if exists)
+                if "neckline_coords" in p and p["neckline_coords"]:
+                    n_dates = [c[0] for c in p["neckline_coords"]]
+                    n_prices = [c[1] for c in p["neckline_coords"]]
+                    if len(n_dates) >= 2:
+                        fig.add_trace(go.Scatter(
+                            x=n_dates, y=n_prices,
+                            mode="lines",
+                            name="Neckline",
+                            line=dict(color="#6C5CE7", width=1.5, dash="dash"),
+                            showlegend=False,
+                        ), row=1, col=1)
+
+            # 2. Add Annotation
+            # Determine best X/Y for annotation
+            ann_x = p.get("date") or p.get("head_date") or p.get("first_peak") or p.get("first_trough")
+            ann_y = p.get("head_price") or p.get("price_level") or (p["coords"][0][1] if "coords" in p else 0)
+            
+            if ann_x and pd.to_datetime(ann_x) in df.index:
                 fig.add_annotation(
-                    x=p["date"], y=1, xref="x", yref="paper",
-                    text=f"⚡ {p['type']}", showarrow=True,
+                    x=ann_x, y=ann_y, xref="x", yref="y",
+                    text=f"⚡ {p['type']}", 
+                    showarrow=True, arrowhead=2,
                     font=dict(size=10, color="#FFD93D"),
-                    bgcolor="rgba(0,0,0,0.7)", bordercolor="#FFD93D",
+                    bgcolor="rgba(0,0,0,0.8)", bordercolor="#FFD93D",
+                    ay=-40,
                 )
-            except Exception:
-                pass
+        except Exception:
+            continue
 
     fig.update_layout(
         template="plotly_dark",
