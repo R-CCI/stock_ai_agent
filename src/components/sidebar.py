@@ -37,7 +37,7 @@ def render_sidebar() -> dict:
         # Model Selection
         model = st.selectbox(
             "🤖 Modelo LLM",
-            ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-3.5-turbo"],
+            ["gpt-5", "gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-3.5-turbo"],
             index=0,
             key="model_select",
         )
@@ -67,7 +67,7 @@ def render_sidebar() -> dict:
                 "Rutas MC",
                 min_value=10, max_value=2000,
                 value=DEFAULT_N_SIMULATIONS,
-                step=10,
+                step=50,
                 key="n_sims",
             )
 
@@ -98,4 +98,3 @@ def render_sidebar() -> dict:
         "n_sims": n_sims,
         "run_analysis": run_analysis,
     }
-
