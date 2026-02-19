@@ -9,6 +9,7 @@ import json
 import traceback
 from openai import OpenAI
 import pandas as pd
+
 # ── Local modules ────────────────────────────────────────────────────────
 from src.config import (
     get_api_key, get_risk_free_rate, DEFAULT_MODEL,
@@ -151,6 +152,7 @@ def run_full_analysis(ticker: str, config: dict):
         price_df = get_price_history(ticker, period=f"{DEFAULT_LOOKBACK_YEARS}y")
         if overview["price"] == 0:
             overview["price"] = price_df["Close"].iloc[-1]
+
         bm_df = get_price_history(benchmark, period=f"{DEFAULT_LOOKBACK_YEARS}y")
 
         # ── Step 3: Fundamentals & Valuation ──
@@ -478,6 +480,22 @@ def run_full_analysis(ticker: str, config: dict):
         # ── PDF Report ──
         progress.progress(98, text="📄 Generando reporte PDF...")
         try:
+            import plotly.io as pio
+            import tempfile
+            chart_paths = []
+            
+            # Save the main charts as temporary images for the PDF
+            for key in ["technical", "montecarlo", "drawdown"]:
+                if key in charts and charts[key]:
+                    try:
+                        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
+                        pio.write_image(charts[key], tmp.name, format="png", width=1200, height=800, scale=2)
+                        chart_paths.append(tmp.name)
+                    except Exception:
+                        continue
+
+            results["current_price_data"] = current_price_data
+            
             pdf_path = generate_report(
                 ticker=ticker,
                 overview=overview,
@@ -485,10 +503,12 @@ def run_full_analysis(ticker: str, config: dict):
                 df_results=df_results,
                 conclusion=conclusion,
                 statements=statements,
+                chart_paths=chart_paths
             )
         except Exception as e:
             pdf_path = None
             st.warning(f"PDF generation failed: {e}")
+            traceback.print_exc()
 
         progress.progress(100, text="✅ ¡Análisis completado!")
 
@@ -645,5 +665,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
