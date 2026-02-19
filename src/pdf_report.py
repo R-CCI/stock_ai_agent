@@ -230,6 +230,31 @@ def generate_report(
             pdf.section_title("Análisis Fundamental")
             pdf.section_body(results["fundamentals"])
 
+    # ── DCF VALUATION ──
+    if "dcf" in results:
+        pdf.add_page()
+        pdf.section_title("Valoración Intrínseca (DCF)")
+        dcf = results["dcf"]
+        g = dcf["gordon"]
+        ex = dcf["exit"]
+        curr_p = overview.get("price", 0)
+        
+        pdf.section_body("El análisis de flujos de caja descontados (DCF) proyecta los flujos libres de caja futuros y los descuenta al presente usando una tasa de retorno requerida (WACC 15%).")
+        
+        dcf_summary = {
+            "Método de Valoración": ["Crecimiento Perpetuo (Gordon)", "Múltiplo de Salida (Exit)"],
+            "Precio Intrínseco": [f"${g['implied_price']:,.2f}", f"${ex['implied_price']:,.2f}"],
+            "Valor de Empresa": [f"${g['enterprise_value']:,.2f}", f"${ex['enterprise_value']:,.2f}"],
+            "% del Valor en Terminal": [f"{g['pct_from_tv']}%", f"{ex['pct_from_tv']}%"],
+            "Margen de Seguridad": [
+                f"{max(0, (1 - curr_p / g['implied_price'])*100):.1f}%" if g['implied_price'] > 0 else "0%",
+                f"{max(0, (1 - curr_p / ex['implied_price'])*100):.1f}%" if ex['implied_price'] > 0 else "0%"
+            ]
+        }
+        pdf.add_dataframe(pd.DataFrame(dcf_summary))
+        
+        pdf.section_body(f"Nota: Se asume un crecimiento perpetuo del 2% y un múltiplo EBITDA de salida de 12x para el escenario base. El precio actual de mercado es ${curr_p:,.2f}.")
+
     # ── FINANCIALS ──
     if statements and overview.get("instrument_type") != "ETF":
         pdf.add_page()
