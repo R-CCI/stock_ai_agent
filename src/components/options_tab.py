@@ -6,7 +6,7 @@ import plotly.graph_objects as go
 
 from src.data_fetcher import get_options_for_expiration
 from src.analysis import compute_options_analysis
-from src.technical_analysis import create_options_chart
+from src.technical_analysis import create_options_charts
 
 
 def render_options_tab(
@@ -44,7 +44,7 @@ def render_options_tab(
                     rfr = get_risk_free_rate() / 100
                     options_analysis = compute_options_analysis(new_data, rfr=rfr)
                     options_analysis["all_expirations"] = all_expirations
-                    options_chart = create_options_chart(options_analysis)
+                    options_chart = create_options_charts(options_analysis, ticker)
 
     st.markdown("---")
 
