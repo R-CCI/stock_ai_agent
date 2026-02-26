@@ -806,3 +806,92 @@ def create_dcf_charts(dcf_results: dict, method: str = "gordon") -> list[go.Figu
     )
 
     return [fig_proj, fig_pie]
+
+
+def create_earnings_chart(earnings_data: dict, ticker: str) -> go.Figure:
+    """Create a Plotly dot-plot of EPS Estimate vs Reported (beat/miss chart)."""
+    df = earnings_data.get("history", pd.DataFrame())
+    next_date = earnings_data.get("next_date")
+    next_estimate = earnings_data.get("next_estimate")
+
+    fig = go.Figure()
+
+    if not df.empty and "date" in df.columns:
+        # Format dates for x-axis labels
+        dates = [str(d)[:10] if hasattr(d, '__str__') else str(d) for d in df["date"]]
+
+        beats = df[df["beat"] == True]
+        misses = df[df["beat"] == False]
+
+        # Grey hollow circles = Estimates
+        fig.add_trace(go.Scatter(
+            x=dates,
+            y=df["estimate"].tolist(),
+            mode="markers",
+            marker=dict(
+                size=18,
+                color="rgba(0,0,0,0)",
+                line=dict(color="#888888", width=2),
+            ),
+            name="Estimado",
+            hovertemplate="<b>%{x}</b><br>Estimado: $%{y:.2f}<extra></extra>",
+        ))
+
+        # Green filled circles = Beats
+        if not beats.empty:
+            beat_dates = [str(d)[:10] for d in beats["date"]]
+            fig.add_trace(go.Scatter(
+                x=beat_dates,
+                y=beats["reported"].tolist(),
+                mode="markers",
+                marker=dict(size=18, color="#00C853", line=dict(color="#00C853", width=2)),
+                name="Beat ✅",
+                hovertemplate=(
+                    "<b>%{x}</b><br>Reportado: $%{y:.2f}<br>"
+                    "Sorpresa: +" + beats["surprise_pct"].astype(str).values[0] + "%<extra></extra>"
+                ) if len(beats) else "<b>%{x}</b><br>$%{y:.2f}<extra></extra>",
+            ))
+
+        # Red filled circles = Misses
+        if not misses.empty:
+            miss_dates = [str(d)[:10] for d in misses["date"]]
+            fig.add_trace(go.Scatter(
+                x=miss_dates,
+                y=misses["reported"].tolist(),
+                mode="markers",
+                marker=dict(size=18, color="#FF5252", line=dict(color="#FF5252", width=2)),
+                name="Miss ❌",
+                hovertemplate="<b>%{x}</b><br>Reportado: $%{y:.2f}<extra></extra>",
+            ))
+
+    # Future estimate (next quarter) — grey hollow, larger
+    if next_estimate is not None:
+        next_label = str(next_date)[:10] if next_date else "Próximo"
+        fig.add_trace(go.Scatter(
+            x=[next_label],
+            y=[float(next_estimate)],
+            mode="markers+text",
+            marker=dict(
+                size=22,
+                color="rgba(0,0,0,0)",
+                line=dict(color="#FFD93D", width=2),
+            ),
+            text=["Prox."],
+            textposition="top center",
+            textfont=dict(color="#FFD93D", size=10),
+            name="Estimado Próx.",
+            hovertemplate=f"<b>Próximo Trimestre</b><br>Estimado: ${next_estimate:.2f}<extra></extra>",
+        ))
+
+    fig.update_layout(
+        template="plotly_dark",
+        title=f"{ticker} — Historial de Ganancias EPS (Estimado vs Reportado)",
+        xaxis_title="Trimestre",
+        yaxis_title="EPS ($)",
+        paper_bgcolor="#0E1117",
+        plot_bgcolor="#0E1117",
+        height=420,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02),
+        hovermode="x unified",
+    )
+    return fig
