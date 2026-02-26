@@ -21,6 +21,7 @@ from src.data_fetcher import (
     get_fundamentals, get_financial_statements, get_valuation_data,
     get_ticker_news, get_market_news, get_macro_blogs,
     get_options_data, get_company_logo_url, get_current_price,
+    get_earnings_history,
 )
 from src.analysis import (
     compute_risk_metrics, run_gmm_montecarlo, compute_options_analysis,
@@ -46,6 +47,7 @@ from src.components.technicals_tab import render_technicals_tab
 from src.components.risk_tab import render_risk_tab
 from src.components.options_tab import render_options_tab
 from src.components.dcf_tab import render_dcf_tab
+from src.components.earnings_tab import render_earnings_tab
 from src.components.report_tab import render_report_tab
 
 
@@ -229,6 +231,11 @@ def run_full_analysis(ticker: str, config: dict):
             shares_outstanding=shares
         )
         results["dcf"] = dcf_baseline
+
+        # ── Step 12: Earnings History ──
+        progress.progress(54, text="📊 Obteniendo historial de ganancias...")
+        earnings_data = get_earnings_history(ticker)
+        st.session_state["earnings_data"] = earnings_data
 
         # ═══════════════════════════════════════════════════════════════
         #  LLM Analysis Calls
@@ -617,8 +624,12 @@ def main():
         pdf_path = st.session_state.get("pdf_path")
 
         # Tabs
-        tab_names = ["📋 Resumen", "💰 Financiero", "📈 Técnico", "⚠️ Riesgo y MC", "🎯 Opciones", "💰 Análisis DCF", "📄 Reporte Final"]
-        tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs(tab_names)
+        tab_names = [
+            "📋 Resumen", "💰 Financiero", "📈 Técnico",
+            "⚠️ Riesgo y MC", "🎯 Opciones", "📊 Ganancias",
+            "💸 Análisis DCF", "📄 Reporte Final"
+        ]
+        tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs(tab_names)
 
         with tab1:
             etf_holdings = {
@@ -663,19 +674,26 @@ def main():
 
         with tab5:
             render_options_tab(
+                ticker=config["ticker"],
                 options_analysis=options_analysis,
                 options_chart=charts.get("options"),
                 options_ai_analysis=results.get("options", ""),
             )
 
         with tab6:
+            render_earnings_tab(
+                ticker=config["ticker"],
+                earnings_data=st.session_state.get("earnings_data", {}),
+            )
+
+        with tab7:
             render_dcf_tab(
                 ticker=config["ticker"],
                 overview=overview,
                 fundamentals=df_results.get("fundamentals_raw", {}),
             )
 
-        with tab7:
+        with tab8:
             render_report_tab(
                 conclusion=conclusion,
                 pdf_path=pdf_path,
