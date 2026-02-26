@@ -505,6 +505,23 @@ def get_options_data(ticker: str) -> dict:
         return {}
 
 
+def get_options_for_expiration(ticker: str, expiration: str) -> dict:
+    """Get options chain for a specific expiration date."""
+    try:
+        stock = _get_yf_ticker(ticker)
+        chain = stock.option_chain(expiration)
+        spot = stock.history(period="1d")["Close"].iloc[-1]
+        return {
+            "expiration": expiration,
+            "spot_price": round(float(spot), 2),
+            "calls": chain.calls,
+            "puts": chain.puts,
+            "all_expirations": list(stock.options),
+        }
+    except Exception:
+        return {}
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 #  Logos
 # ═══════════════════════════════════════════════════════════════════════════
@@ -525,3 +542,73 @@ def get_company_logo_url(ticker: str) -> str:
     except Exception:
         pass
     return ""
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Earnings History
+# ═══════════════════════════════════════════════════════════════════════════
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_earnings_history(ticker: str) -> dict:
+    """Fetch quarterly EPS earnings history and next quarter estimate."""
+    result = {
+        "history": pd.DataFrame(),
+        "next_date": None,
+        "next_estimate": None,
+    }
+    try:
+        stock = _get_yf_ticker(ticker)
+
+        # Earnings history: estimate vs actual EPS
+        hist = stock.earnings_history
+        if hist is not None and not hist.empty:
+            df = hist.copy().reset_index()
+            # rename columns to standard names
+            rename_map = {}
+            for col in df.columns:
+                low = col.lower()
+                if "date" in low or "period" in low or "quarter" in low:
+                    rename_map[col] = "date"
+                elif "eps" in low and "estimate" in low:
+                    rename_map[col] = "estimate"
+                elif "eps" in low and ("actual" in low or "reported" in low):
+                    rename_map[col] = "reported"
+                elif "surprise" in low and "%" in low:
+                    rename_map[col] = "surprise_pct"
+                elif "surprise" in low:
+                    rename_map[col] = "surprise_pct"
+            df = df.rename(columns=rename_map)
+
+            needed = ["date", "estimate", "reported"]
+            if all(c in df.columns for c in needed):
+                df = df[df["estimate"].notna() & df["reported"].notna()].copy()
+                df["surprise_pct"] = (
+                    (df["reported"] - df["estimate"]) / df["estimate"].abs() * 100
+                ).round(2)
+                df["beat"] = df["reported"] >= df["estimate"]
+                # Quarter-over-quarter EPS growth
+                df = df.sort_values("date")
+                df["qoq_pct"] = df["reported"].pct_change() * 100
+                df["yoy_pct"] = df["reported"].pct_change(periods=4) * 100
+                result["history"] = df.tail(20)  # Keep last 20 quarters
+
+        # Next earnings date and estimate
+        try:
+            cal = stock.calendar
+            if cal is not None:
+                if isinstance(cal, dict):
+                    result["next_date"] = cal.get("Earnings Date", [None])
+                    if isinstance(result["next_date"], list):
+                        result["next_date"] = result["next_date"][0] if result["next_date"] else None
+                    result["next_estimate"] = cal.get("EPS Estimate", None)
+                elif isinstance(cal, pd.DataFrame):
+                    if "Earnings Date" in cal.index:
+                        result["next_date"] = cal.loc["Earnings Date"].iloc[0]
+                    if "EPS Estimate" in cal.index:
+                        result["next_estimate"] = cal.loc["EPS Estimate"].iloc[0]
+        except Exception:
+            pass
+
+    except Exception:
+        pass
+    return result
