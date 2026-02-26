@@ -379,3 +379,112 @@ def compute_dcf(
             "pct_from_tv": round(pv_tv_exit * 100 / ev_exit, 1) if ev_exit > 0 else 0
         }
     }
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Earnings Beat Predictor — Markov Chain
+# ═══════════════════════════════════════════════════════════════════════════
+
+def compute_markov_earnings(history_df: pd.DataFrame) -> dict:
+    """
+    Build a Markov Chain from the historical EPS beat/miss sequence to
+    predict the probability of beating in the next quarter.
+
+    States:
+        'B' = Beat  (surprise_pct > +2%)
+        'M' = Miss  (surprise_pct < -2%)
+        'N' = Near  (-2% <= surprise_pct <= +2%)
+
+    Returns a dict with:
+        - transition_matrix (DataFrame)
+        - current_state (last observed state)
+        - beat_probability (float, 0-100%)
+        - miss_probability (float, 0-100%)
+        - beat_streak (int, consecutive beats)
+        - miss_streak (int, consecutive misses)
+        - historical_beat_rate (float, simple %)
+        - verdict (str, e.g. 'Alta probabilidad de beat')
+    """
+    if history_df.empty or "beat" not in history_df.columns:
+        return {}
+
+    df = history_df.dropna(subset=["surprise_pct"]).copy()
+    if len(df) < 2:
+        return {}
+
+    # Classify each quarter into a state
+    def classify(s_pct):
+        if s_pct > 2:
+            return "B"
+        elif s_pct < -2:
+            return "M"
+        return "N"
+
+    df["state"] = df["surprise_pct"].apply(classify)
+    states_seq = df["state"].tolist()
+
+    # Build transition counts
+    states = ["B", "M", "N"]
+    trans_counts = pd.DataFrame(0, index=states, columns=states)
+    for i in range(len(states_seq) - 1):
+        trans_counts.loc[states_seq[i], states_seq[i + 1]] += 1
+
+    # Transition probability matrix
+    trans_matrix = trans_counts.div(trans_counts.sum(axis=1).replace(0, 1), axis=0)
+
+    # Current state
+    current_state = states_seq[-1]
+
+    # Next-step probability distribution
+    if current_state in trans_matrix.index:
+        prob_row = trans_matrix.loc[current_state]
+    else:
+        prob_row = pd.Series({"B": 1/3, "M": 1/3, "N": 1/3})
+
+    beat_prob = round(float(prob_row.get("B", 0)) * 100, 1)
+    miss_prob = round(float(prob_row.get("M", 0)) * 100, 1)
+    near_prob = round(float(prob_row.get("N", 0)) * 100, 1)
+
+    # Streaks
+    beat_streak = 0
+    miss_streak = 0
+    for s in reversed(states_seq):
+        if s == "B":
+            if miss_streak == 0:
+                beat_streak += 1
+            else:
+                break
+        elif s == "M":
+            if beat_streak == 0:
+                miss_streak += 1
+            else:
+                break
+        else:
+            break
+
+    historical_beat_rate = round(
+        100 * (df["beat"].sum() / len(df)), 1
+    )
+
+    # Verdict
+    if beat_prob >= 60:
+        verdict = "🟢 Alta probabilidad de BEAT"
+    elif beat_prob >= 45:
+        verdict = "🟡 Probabilidad moderada de beat"
+    elif miss_prob >= 60:
+        verdict = "🔴 Alta probabilidad de MISS"
+    else:
+        verdict = "⚪ Sin señal clara"
+
+    return {
+        "transition_matrix": trans_matrix.round(3),
+        "current_state": current_state,
+        "beat_probability": beat_prob,
+        "miss_probability": miss_prob,
+        "near_probability": near_prob,
+        "beat_streak": beat_streak,
+        "miss_streak": miss_streak,
+        "historical_beat_rate": historical_beat_rate,
+        "total_quarters": len(df),
+        "verdict": verdict,
+    }
