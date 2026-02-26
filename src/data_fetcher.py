@@ -674,6 +674,65 @@ def get_earnings_history(ticker: str) -> dict:
             except Exception:
                 pass
 
+        # ── Price Reaction Enrichment ──
+        if not result["history"].empty:
+            try:
+                hist_df = result["history"].copy()
+                # Download 3+ years of daily price history
+                price_hist = yf.download(ticker, period="5y", auto_adjust=True, progress=False)
+                if isinstance(price_hist.columns, pd.MultiIndex):
+                    price_hist.columns = price_hist.columns.droplevel(1)
+                price_hist = price_hist[["Close", "Open"]]
+                price_hist.index = pd.to_datetime(price_hist.index).tz_localize(None)
+
+                reactions = []
+                for _, row in hist_df.iterrows():
+                    try:
+                        earn_date = pd.to_datetime(row["date"]).tz_localize(None).normalize()
+                        # Find the trading day ON or AFTER earnings (AMC reports shift to next day)
+                        future_prices = price_hist[price_hist.index > earn_date].head(3)
+                        prev_prices = price_hist[price_hist.index <= earn_date].tail(2)
+
+                        if future_prices.empty or prev_prices.empty:
+                            reactions.append((float("nan"), float("nan")))
+                            continue
+
+                        prev_close = float(prev_prices["Close"].iloc[-1])
+                        reaction_close = float(future_prices["Close"].iloc[0])
+                        reaction_open = float(future_prices["Open"].iloc[0])
+
+                        # Close-to-close reaction (full day after earnings)
+                        cc_pct = round((reaction_close - prev_close) / prev_close * 100, 2)
+                        # Gap at open (pre-market / overnight reaction)
+                        gap_pct = round((reaction_open - prev_close) / prev_close * 100, 2)
+                        reactions.append((cc_pct, gap_pct))
+                    except Exception:
+                        reactions.append((float("nan"), float("nan")))
+
+                hist_df["stock_reaction_pct"] = [r[0] for r in reactions]
+                hist_df["stock_gap_pct"] = [r[1] for r in reactions]
+
+                # Classify market reaction
+                def _classify_reaction(row):
+                    beat = row.get("surprise_pct", 0) or 0
+                    react = row.get("stock_reaction_pct", float("nan"))
+                    if pd.isna(react):
+                        return "N/A"
+                    if beat > 2 and react > 1:
+                        return "Beat + Sube ✅📈"
+                    elif beat > 2 and react <= -1:
+                        return "Beat + Cae ✅📉"
+                    elif beat < -2 and react < -1:
+                        return "Miss + Cae ❌📉"
+                    elif beat < -2 and react >= 1:
+                        return "Miss + Sube ❌📈"
+                    return "Neutral ⚪"
+
+                hist_df["market_reaction"] = hist_df.apply(_classify_reaction, axis=1)
+                result["history"] = hist_df
+            except Exception:
+                pass
+
     except Exception:
         pass
 
