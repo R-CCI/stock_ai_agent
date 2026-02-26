@@ -809,89 +809,133 @@ def create_dcf_charts(dcf_results: dict, method: str = "gordon") -> list[go.Figu
 
 
 def create_earnings_chart(earnings_data: dict, ticker: str) -> go.Figure:
-    """Create a Plotly dot-plot of EPS Estimate vs Reported (beat/miss chart)."""
+    """Create a dual-panel Plotly chart:
+    Top: EPS dot-plot (estimate vs beat/miss).
+    Bottom: Post-earnings stock price reaction bar chart.
+    """
+    from plotly.subplots import make_subplots
+
     df = earnings_data.get("history", pd.DataFrame())
     next_date = earnings_data.get("next_date")
     next_estimate = earnings_data.get("next_estimate")
 
-    fig = go.Figure()
+    has_reaction = ("stock_reaction_pct" in df.columns) and df["stock_reaction_pct"].notna().any()
+
+    row_heights = [0.62, 0.38] if has_reaction else [1]
+    rows = 2 if has_reaction else 1
+
+    fig = make_subplots(
+        rows=rows, cols=1,
+        shared_xaxes=True,
+        vertical_spacing=0.08,
+        row_heights=row_heights,
+        subplot_titles=(
+            [f"{ticker} — EPS: Estimado vs Reportado", "Reacción del Mercado al Día Siguiente (%)"]
+            if has_reaction else [f"{ticker} — EPS: Estimado vs Reportado"]
+        ),
+    )
 
     if not df.empty and "date" in df.columns:
-        # Format dates for x-axis labels
-        dates = [str(d)[:10] if hasattr(d, '__str__') else str(d) for d in df["date"]]
-
+        dates = [str(d)[:10] if hasattr(d, "__str__") else str(d) for d in df["date"]]
         beats = df[df["beat"] == True]
         misses = df[df["beat"] == False]
 
-        # Grey hollow circles = Estimates
-        fig.add_trace(go.Scatter(
-            x=dates,
-            y=df["estimate"].tolist(),
-            mode="markers",
-            marker=dict(
-                size=18,
-                color="rgba(0,0,0,0)",
-                line=dict(color="#888888", width=2),
-            ),
-            name="Estimado",
-            hovertemplate="<b>%{x}</b><br>Estimado: $%{y:.2f}<extra></extra>",
-        ))
+        # Custom hover
+        def _hover(row_data, d):
+            surprise = row_data.get("surprise_pct", float("nan"))
+            react = row_data.get("stock_reaction_pct", float("nan"))
+            gap = row_data.get("stock_gap_pct", float("nan"))
+            lines = [f"<b>{d}</b>"]
+            if not pd.isna(row_data.get("estimate", float("nan"))):
+                lines.append(f"Estimado: ${row_data['estimate']:.2f}")
+            if not pd.isna(row_data.get("reported", float("nan"))):
+                lines.append(f"Reportado: ${row_data['reported']:.2f}")
+            if not pd.isna(surprise):
+                lines.append(f"Sorpresa EPS: {surprise:+.2f}%")
+            if not pd.isna(react):
+                lines.append(f"Reacción Stock: {react:+.2f}%")
+            if not pd.isna(gap):
+                lines.append(f"Gap apertura: {gap:+.2f}%")
+            return "<br>".join(lines) + "<extra></extra>"
 
-        # Green filled circles = Beats
+        # Grey hollow estimates
+        est_hover = [_hover(df.iloc[i], dates[i]) for i in range(len(df))]
+        fig.add_trace(go.Scatter(
+            x=dates, y=df["estimate"].tolist(), mode="markers",
+            marker=dict(size=18, color="rgba(0,0,0,0)", line=dict(color="#888888", width=2)),
+            name="Estimado", hovertemplate=est_hover,
+        ), row=1, col=1)
+
+        # Beat dots (green)
         if not beats.empty:
             beat_dates = [str(d)[:10] for d in beats["date"]]
+            beat_hover = [_hover(beats.iloc[i], beat_dates[i]) for i in range(len(beats))]
             fig.add_trace(go.Scatter(
-                x=beat_dates,
-                y=beats["reported"].tolist(),
-                mode="markers",
-                marker=dict(size=18, color="#00C853", line=dict(color="#00C853", width=2)),
-                name="Beat ✅",
-                hovertemplate=(
-                    "<b>%{x}</b><br>Reportado: $%{y:.2f}<br>"
-                    "Sorpresa: +" + beats["surprise_pct"].astype(str).values[0] + "%<extra></extra>"
-                ) if len(beats) else "<b>%{x}</b><br>$%{y:.2f}<extra></extra>",
-            ))
+                x=beat_dates, y=beats["reported"].tolist(), mode="markers",
+                marker=dict(size=18, color="#00C853"),
+                name="Beat ✅", hovertemplate=beat_hover,
+            ), row=1, col=1)
 
-        # Red filled circles = Misses
+        # Miss dots (red)
         if not misses.empty:
             miss_dates = [str(d)[:10] for d in misses["date"]]
+            miss_hover = [_hover(misses.iloc[i], miss_dates[i]) for i in range(len(misses))]
             fig.add_trace(go.Scatter(
-                x=miss_dates,
-                y=misses["reported"].tolist(),
-                mode="markers",
-                marker=dict(size=18, color="#FF5252", line=dict(color="#FF5252", width=2)),
-                name="Miss ❌",
-                hovertemplate="<b>%{x}</b><br>Reportado: $%{y:.2f}<extra></extra>",
-            ))
+                x=miss_dates, y=misses["reported"].tolist(), mode="markers",
+                marker=dict(size=18, color="#FF5252"),
+                name="Miss ❌", hovertemplate=miss_hover,
+            ), row=1, col=1)
 
-    # Future estimate (next quarter) — grey hollow, larger
+        # ── Bottom Panel: Market Reaction Bar ──
+        if has_reaction:
+            reactions = df["stock_reaction_pct"].tolist()
+            react_colors = ["#00C853" if (r or 0) > 0 else "#FF5252" for r in reactions]
+            # Hatch pattern: if beat but negative, or miss but positive → special border
+            border_colors = []
+            for _, row_data in df.iterrows():
+                beat = row_data.get("surprise_pct", 0) or 0
+                react = row_data.get("stock_reaction_pct", 0) or 0
+                if (beat > 2 and react < -1) or (beat < -2 and react > 1):
+                    border_colors.append("#FFD93D")  # Yellow = paradox
+                else:
+                    border_colors.append("rgba(0,0,0,0)")
+
+            fig.add_trace(go.Bar(
+                x=dates, y=reactions,
+                marker=dict(
+                    color=react_colors, opacity=0.85,
+                    line=dict(color=border_colors, width=2),
+                ),
+                name="Reacción Stock %",
+                hovertemplate=[f"<b>{d}</b><br>Reacción: {r:+.2f}%<extra></extra>"
+                               if not pd.isna(r) else f"<b>{d}</b><br>Sin datos<extra></extra>"
+                               for d, r in zip(dates, reactions)],
+            ), row=2, col=1)
+            fig.add_hline(y=0, line_color="#888", line_width=1, row=2, col=1)
+
+    # Next quarter estimate dot
     if next_estimate is not None:
         next_label = str(next_date)[:10] if next_date else "Próximo"
         fig.add_trace(go.Scatter(
-            x=[next_label],
-            y=[float(next_estimate)],
+            x=[next_label], y=[float(next_estimate)],
             mode="markers+text",
-            marker=dict(
-                size=22,
-                color="rgba(0,0,0,0)",
-                line=dict(color="#FFD93D", width=2),
-            ),
-            text=["Prox."],
-            textposition="top center",
+            marker=dict(size=22, color="rgba(0,0,0,0)", line=dict(color="#FFD93D", width=2)),
+            text=["Prox."], textposition="top center",
             textfont=dict(color="#FFD93D", size=10),
             name="Estimado Próx.",
             hovertemplate=f"<b>Próximo Trimestre</b><br>Estimado: ${next_estimate:.2f}<extra></extra>",
-        ))
+        ), row=1, col=1)
 
     fig.update_layout(
         template="plotly_dark",
-        title=f"{ticker} — Historial de Ganancias EPS (Estimado vs Reportado)",
-        xaxis_title="Trimestre",
-        yaxis_title="EPS ($)",
         paper_bgcolor="#0E1117",
         plot_bgcolor="#0E1117",
-        height=420,
+        height=560 if has_reaction else 420,
         legend=dict(orientation="h", yanchor="bottom", y=1.02),
         hovermode="x unified",
     )
+    fig.update_yaxes(title_text="EPS ($)", row=1, col=1)
+    if has_reaction:
+        fig.update_yaxes(title_text="Reacción (%)", row=2, col=1)
+    fig.update_xaxes(title_text="Trimestre", row=rows, col=1)
     return fig
