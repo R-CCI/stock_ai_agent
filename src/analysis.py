@@ -290,6 +290,8 @@ def compute_options_analysis(options_data: dict, rfr: float | None = None) -> di
         "total_put_oi": int(total_put_oi),
         "calls": calls,
         "puts": puts,
+        # Preserve pass-through keys from raw data
+        "all_expirations": options_data.get("all_expirations", []),
     }
 
 
