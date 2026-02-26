@@ -1,16 +1,52 @@
 # -*- coding: utf-8 -*-
-"""Options tab — options chain analysis, IV, max pain, positioning."""
+"""Options tab — interactive options chain analysis with user-selectable expiration."""
 
 import streamlit as st
 import plotly.graph_objects as go
 
+from src.data_fetcher import get_options_for_expiration
+from src.analysis import compute_options_analysis
+from src.technical_analysis import create_options_chart
 
-def render_options_tab(options_analysis: dict, options_chart: go.Figure | None, options_ai_analysis: str):
-    """Render the Options tab."""
+
+def render_options_tab(
+    ticker: str,
+    options_analysis: dict,
+    options_chart: go.Figure | None,
+    options_ai_analysis: str,
+):
+    """Render the Options tab with interactive expiration selection."""
 
     if not options_analysis:
         st.warning("⚠️ No hay datos de opciones disponibles para este ticker.")
         return
+
+    # ── Expiration Selector ──
+    all_expirations = options_analysis.get("all_expirations", [])
+    current_exp = options_analysis.get("expiration", "")
+
+    if all_expirations:
+        st.markdown("#### 📅 Seleccionar Fecha de Expiración")
+        selected_exp = st.selectbox(
+            "Expiración",
+            options=all_expirations,
+            index=all_expirations.index(current_exp) if current_exp in all_expirations else 0,
+            key="options_expiration_selector",
+            label_visibility="collapsed",
+        )
+
+        # Recalculate if expiration changed
+        if selected_exp != current_exp:
+            with st.spinner(f"Cargando cadena de opciones para {selected_exp}..."):
+                new_data = get_options_for_expiration(ticker, selected_exp)
+                if new_data:
+                    from src.config import get_risk_free_rate
+                    rfr = get_risk_free_rate() / 100
+                    options_analysis = compute_options_analysis(new_data, rfr=rfr)
+                    options_analysis["all_expirations"] = all_expirations
+                    options_chart = create_options_chart(options_analysis)
+
+    st.markdown("---")
 
     # ── Key Metrics ──
     st.markdown("#### 🎯 Resumen de Opciones")
