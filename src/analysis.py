@@ -389,23 +389,20 @@ def compute_dcf(
 
 def compute_markov_earnings(history_df: pd.DataFrame) -> dict:
     """
-    Build a Markov Chain from the historical EPS beat/miss sequence to
-    predict the probability of beating in the next quarter.
+    Build TWO Markov Chains from the historical earnings data:
 
-    States:
+    Model 1 — EPS only (3 states):
         'B' = Beat  (surprise_pct > +2%)
         'M' = Miss  (surprise_pct < -2%)
-        'N' = Near  (-2% <= surprise_pct <= +2%)
+        'N' = Near  (-2% ≤ surprise_pct ≤ +2%)
 
-    Returns a dict with:
-        - transition_matrix (DataFrame)
-        - current_state (last observed state)
-        - beat_probability (float, 0-100%)
-        - miss_probability (float, 0-100%)
-        - beat_streak (int, consecutive beats)
-        - miss_streak (int, consecutive misses)
-        - historical_beat_rate (float, simple %)
-        - verdict (str, e.g. 'Alta probabilidad de beat')
+    Model 2 — EPS + Market Reaction (4 states):
+        'BR' = Beat + Mercado Sube  (beat & stock_reaction > +1%)
+        'BF' = Beat + Mercado Cae  (beat & stock_reaction ≤ -1%)
+        'MR' = Miss + Mercado Sube  (miss & stock_reaction ≥ +1%)
+        'MF' = Miss + Mercado Cae  (miss & stock_reaction < -1%)
+
+    Returns a dict with both models and combined verdict.
     """
     if history_df.empty or "beat" not in history_df.columns:
         return {}
@@ -414,73 +411,125 @@ def compute_markov_earnings(history_df: pd.DataFrame) -> dict:
     if len(df) < 2:
         return {}
 
-    # Classify each quarter into a state
-    def classify(s_pct):
-        if s_pct > 2:
-            return "B"
-        elif s_pct < -2:
-            return "M"
+    # ── Model 1: EPS only ──────────────────────────────────────────────────
+    def classify_eps(s_pct):
+        if s_pct > 2:   return "B"
+        elif s_pct < -2: return "M"
         return "N"
 
-    df["state"] = df["surprise_pct"].apply(classify)
-    states_seq = df["state"].tolist()
+    df["state_eps"] = df["surprise_pct"].apply(classify_eps)
+    seq_eps = df["state_eps"].tolist()
+    states_eps = ["B", "M", "N"]
+    counts_eps = pd.DataFrame(0, index=states_eps, columns=states_eps)
+    for i in range(len(seq_eps) - 1):
+        counts_eps.loc[seq_eps[i], seq_eps[i + 1]] += 1
+    tm_eps = counts_eps.div(counts_eps.sum(axis=1).replace(0, 1), axis=0)
 
-    # Build transition counts
-    states = ["B", "M", "N"]
-    trans_counts = pd.DataFrame(0, index=states, columns=states)
-    for i in range(len(states_seq) - 1):
-        trans_counts.loc[states_seq[i], states_seq[i + 1]] += 1
-
-    # Transition probability matrix
-    trans_matrix = trans_counts.div(trans_counts.sum(axis=1).replace(0, 1), axis=0)
-
-    # Current state
-    current_state = states_seq[-1]
-
-    # Next-step probability distribution
-    if current_state in trans_matrix.index:
-        prob_row = trans_matrix.loc[current_state]
-    else:
-        prob_row = pd.Series({"B": 1/3, "M": 1/3, "N": 1/3})
-
-    beat_prob = round(float(prob_row.get("B", 0)) * 100, 1)
-    miss_prob = round(float(prob_row.get("M", 0)) * 100, 1)
-    near_prob = round(float(prob_row.get("N", 0)) * 100, 1)
+    current_eps = seq_eps[-1]
+    prob_eps = tm_eps.loc[current_eps] if current_eps in tm_eps.index else pd.Series({s: 1/3 for s in states_eps})
+    beat_prob = round(float(prob_eps.get("B", 0)) * 100, 1)
+    miss_prob = round(float(prob_eps.get("M", 0)) * 100, 1)
+    near_prob = round(float(prob_eps.get("N", 0)) * 100, 1)
 
     # Streaks
-    beat_streak = 0
-    miss_streak = 0
-    for s in reversed(states_seq):
+    beat_streak = miss_streak = 0
+    for s in reversed(seq_eps):
         if s == "B":
-            if miss_streak == 0:
-                beat_streak += 1
-            else:
-                break
+            if miss_streak == 0: beat_streak += 1
+            else: break
         elif s == "M":
-            if beat_streak == 0:
-                miss_streak += 1
-            else:
-                break
+            if beat_streak == 0: miss_streak += 1
+            else: break
+        else: break
+
+    historical_beat_rate = round(100 * float(df["beat"].sum()) / len(df), 1)
+
+    if beat_prob >= 60:   verdict = "🟢 Alta probabilidad de BEAT"
+    elif beat_prob >= 45: verdict = "🟡 Probabilidad moderada de beat"
+    elif miss_prob >= 60: verdict = "🔴 Alta probabilidad de MISS"
+    else:                 verdict = "⚪ Sin señal clara"
+
+    # ── Model 2: EPS + Market Reaction ────────────────────────────────────
+    markov_reaction = {}
+    has_react = "stock_reaction_pct" in df.columns and df["stock_reaction_pct"].notna().any()
+
+    if has_react:
+        df_r = df.dropna(subset=["stock_reaction_pct"]).copy()
+
+        def classify_combined(row):
+            s = row["surprise_pct"] or 0
+            r = row["stock_reaction_pct"] or 0
+            if s > 2   and r > 1:   return "BR"   # Beat + Sube
+            if s > 2   and r <= -1: return "BF"   # Beat + Cae
+            if s < -2  and r >= 1:  return "MR"   # Miss + Sube
+            if s < -2  and r < -1:  return "MF"   # Miss + Cae
+            return "N"                              # Near / neutral
+
+        df_r["state_combined"] = df_r.apply(classify_combined, axis=1)
+        seq_cmb = df_r["state_combined"].tolist()
+        states_cmb = ["BR", "BF", "MR", "MF", "N"]
+
+        counts_cmb = pd.DataFrame(0, index=states_cmb, columns=states_cmb)
+        for i in range(len(seq_cmb) - 1):
+            counts_cmb.loc[seq_cmb[i], seq_cmb[i + 1]] += 1
+
+        # Remove all-zero rows/cols for readability
+        active = [s for s in states_cmb if counts_cmb.loc[s].sum() > 0 or counts_cmb[s].sum() > 0]
+        if not active:
+            active = states_cmb
+        counts_cmb = counts_cmb.loc[active, active]
+        tm_cmb = counts_cmb.div(counts_cmb.sum(axis=1).replace(0, 1), axis=0)
+
+        current_cmb = seq_cmb[-1]
+        if current_cmb in tm_cmb.index:
+            prob_cmb = tm_cmb.loc[current_cmb]
         else:
-            break
+            prob_cmb = pd.Series({s: 1/len(active) for s in active})
 
-    historical_beat_rate = round(
-        100 * (df["beat"].sum() / len(df)), 1
-    )
+        # Friendly labels
+        label_map = {
+            "BR": "Beat+Sube ✅📈", "BF": "Beat+Cae ✅📉",
+            "MR": "Miss+Sube ❌📈", "MF": "Miss+Cae ❌📉", "N": "Neutral ⚪",
+        }
+        probs_cmb = {label_map.get(s, s): round(float(v) * 100, 1)
+                     for s, v in prob_cmb.items()}
 
-    # Verdict
-    if beat_prob >= 60:
-        verdict = "🟢 Alta probabilidad de BEAT"
-    elif beat_prob >= 45:
-        verdict = "🟡 Probabilidad moderada de beat"
-    elif miss_prob >= 60:
-        verdict = "🔴 Alta probabilidad de MISS"
-    else:
-        verdict = "⚪ Sin señal clara"
+        # Rename matrix axes for display
+        tm_display = tm_cmb.copy()
+        tm_display.index = [label_map.get(s, s) for s in tm_display.index]
+        tm_display.columns = [label_map.get(s, s) for s in tm_display.columns]
+
+        # Best outcome and its probability
+        best_outcome = max(probs_cmb, key=probs_cmb.get)
+        best_prob = probs_cmb[best_outcome]
+
+        # Paradox frequency
+        paradox_n = sum(1 for s in seq_cmb if s in ("BF", "MR"))
+        paradox_rate = round(100 * paradox_n / len(seq_cmb), 1) if seq_cmb else 0
+
+        # Combined verdict
+        color_map = {
+            "Beat+Sube ✅📈": "🟢", "Beat+Cae ✅📉": "🟡",
+            "Miss+Sube ❌📈": "🟠", "Miss+Cae ❌📉": "🔴", "Neutral ⚪": "⚪"
+        }
+        icon = color_map.get(best_outcome, "⚪")
+        combined_verdict = f"{icon} Resultado más probable: **{best_outcome}** ({best_prob}%)"
+
+        markov_reaction = {
+            "transition_matrix": tm_display.round(3),
+            "current_state": label_map.get(current_cmb, current_cmb),
+            "probabilities": probs_cmb,
+            "best_outcome": best_outcome,
+            "best_probability": best_prob,
+            "paradox_rate": paradox_rate,
+            "combined_verdict": combined_verdict,
+            "total_quarters": len(df_r),
+        }
 
     return {
-        "transition_matrix": trans_matrix.round(3),
-        "current_state": current_state,
+        # Model 1
+        "transition_matrix": tm_eps.round(3),
+        "current_state": current_eps,
         "beat_probability": beat_prob,
         "miss_probability": miss_prob,
         "near_probability": near_prob,
@@ -489,4 +538,6 @@ def compute_markov_earnings(history_df: pd.DataFrame) -> dict:
         "historical_beat_rate": historical_beat_rate,
         "total_quarters": len(df),
         "verdict": verdict,
+        # Model 2
+        "markov_reaction": markov_reaction,
     }
