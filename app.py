@@ -192,6 +192,10 @@ def run_full_analysis(ticker: str, config: dict):
         progress.progress(35, text="🎯 Obteniendo cadena de opciones...")
         raw_options = get_options_data(ticker)
         options_analysis = compute_options_analysis(raw_options, rfr / 100) if raw_options else {}
+        # Preserve the expiration list so the Options tab can show the selector
+        if options_analysis and raw_options:
+            options_analysis["all_expirations"] = raw_options.get("all_expirations", [])
+        st.session_state["raw_options"] = raw_options
 
         # ── Step 8: Technical Analysis ──
         progress.progress(40, text="📊 Calculando indicadores técnicos...")
